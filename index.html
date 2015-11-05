@@ -1,15 +1,330 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
-    <meta charset="utf-8">
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/css/reset.css">
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.css">
     <script src="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js" charset="utf-8"></script>
+    <style>
+     #run {
+        margin-top:5px;
+        float:left;
+        clear:both;
+        padding: 6px 12px;
+        background-color: #61adf0;
+        background-image: -webkit-linear-gradient(#6ab5f2,#53a0ee);
+        background-image: linear-gradient(#6ab5f2,#53a0ee);
+        box-shadow: inset 0 1px 1px #77bdf4,0 2px 2px -1px rgba(0,0,0,0.2);
+        text-transform: uppercase;
+        border: 1px solid #4d93d7;
+        color: #fff;
+        text-shadow: 0 -1px 0 rgba(0,0,0,0.2);
+        border-radius: 3px;
+        cursor: pointer;
+        font-weight: bold;
+      }
+
+      .node circle {
+        fill: #fff;
+        stroke: steelblue;
+        stroke-width: 1.5px;
+      }
+
+      .node {
+        font: 10px sans-serif;
+
+      }
+
+      .link {
+        fill: none;
+        stroke: steelblue;
+        stroke-linecap: round;
+      }
+    </style>
   </head>
-  <body class="mixpanel-platform-body">
-    <h1>Hello, World!</h1>
+  <body class="mixpanel-platform-body" style="overflow-x:scroll;">
+      <div id="eventSelect" style="float: left;"></div>
+      <div id="dateRange" style="float: right;"></div>
+      <div style="clear: both;"></div>
+      <button id="run" value="Run" style="margin-left: 10px; display: none;">Run</button>
     <script>
-      // Run queries and display results here
+    
+      function toTitleCase(str)
+      {
+        return str.replace(/\w\S*/g, function(txt){return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();});
+      }
+
+      var params = {
+        from: moment().subtract(10, 'days'),
+        to: moment(),
+        length: 14,
+        limit: 200,
+        interval: 90
+      }
+      
+      MP.api.ready(function() {
+        
+        var objs = {};
+        /* Find the Top Page URLS */
+        
+        var pageViewValueParams = {
+              limit: 25
+          };
+          
+        var pageViewProps = MP.api.propertyValues('page', 'page type', pageViewValueParams)
+        
+        var urlPropList = [];
+        
+        $.when(pageViewProps).done(function(props){
+            /* Cache top props */
+            objs = props.values();
+            _.each(objs, function(urlProp){
+              var prop = urlProp.replace('/ffl/','');
+            
+              urlPropList.push(toTitleCase(prop));
+              
+            });
+            var items = [];
+          _.each(urlPropList, function(prop){
+            
+            var dct = {};
+            var index = urlPropList.indexOf(prop);
+            dct['label'] = prop;
+            dct['value'] = objs[index];
+            items.push(dct);
+          });
+          var options = {}
+          /* Sort Items */
+          options['items'] = _.sortBy(items, 'label');
+          
+          var dropdown = $('#eventSelect').MPSelect(options);
+          
+          dropdown.on('change', function(e, selection) {                      
+              $('#run').show();
+          });
+          
+        });
+        
+        
+        /* Global Event List */
+        var rootEvent;
+        
+        var ids = new Set();
+        var graphData = {}
+        function randomNum() {
+            return _.random(0, 10000000);
+        }
+
+        var width = 960;
+        var height = 750;
+        var cluster = d3.layout.cluster()
+          .size([height, width - 160]);
+        var diagonal = d3.svg.diagonal()
+            .projection(function(d) { return [d.y, d.x]; });
+
+        var svg = d3.select("body").append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .call(d3.behavior.zoom().on("zoom", function () {
+                    svg.attr("transform", "translate(" + d3.event.translate + ")" + " scale(" + d3.event.scale + ")")
+                  })
+                )
+            .append("g")
+            .attr("transform", "translate(40,0)");
+
+        function addNode(data){
+
+          d3.selectAll(".text").remove();
+          d3.selectAll(".node").remove();
+          d3.selectAll(".link").remove();
+
+          var nodes = cluster.nodes(data),
+              links = cluster.links(nodes);
+
+          nodes.forEach(function(d) { d.y = d.depth * 180; });
+
+          var allLinks = svg.selectAll(".link").data(links);
+          var link = allLinks.enter().append("path")
+              .attr("class", "link")
+              .style('stroke-width', function(d) {
+                return ( d.target.conversion * .18);
+              });
+
+          allLinks.transition().duration(1000).attr("d", diagonal);
+
+          var allNodes = svg.selectAll(".node").data(nodes);
+          var node = allNodes.enter().append("g")
+              .attr("class", "node")
+              .attr("transform", function(d) { return "translate(" + d.y + "," + d.x + ")"; })
+              .style('cursor','pointer')
+              .style('opacity', 0.6)
+              .on('mouseover', function(d){
+                  d3.select(this).style('opacity', 1.0)
+                  d3.select("text").style('opacity', 1.0);
+              })
+              .on('mouseout', function(d){
+                d3.select(this).style('opacity', 0.6)
+              })
+              .on('click', function(val){
+                  
+                  if (val.children) {
+                    val._children = val.children;
+                    val.children = null;
+                    addNode(graphData)
+                  } else if (val._children) {
+                    val.children = val._children;
+                    addNode(graphData);
+                  } else {
+                    val._children = true ;
+                    nodeQuery(objs, val);
+                  }
+              });
+
+          node.append('svg:title')
+            .text(function(d) {
+              var count = 'Count: ' + String(d.count) + '\n';
+              var parent = 'Conversion to the Parent Event: ' + String(d.conversion) + '%\n';
+              // var root = 'Conversion From Root Event: ' + String(d.root) + '%';
+              return count + parent});
+          node.append("circle")
+              .attr("r", 4.5);
+
+          node.append("text")
+              .attr("dx", function(d) { return d.children ? 0 : 8; })
+              .attr("dy", function(d) { return d.children ? 18 : 3; })
+              .text(function(d) { return d.eventName; })
+              .attr("text-anchor", function(d){
+                return ( d.children ? "middle" : undefined );
+              });
+        };
+
+        /* Let the Funnel Queries Begin... */
+        var nodeQuery = function(propList, node){
+            /* Dict with top counts for each event */
+            var nodes = {};
+            var promises = [];
+            
+            _.each(_.keys(propList), function(key) {
+              var event = propList[key];
+              var parent = node.parent;
+              var selector_str;
+              var events = [];
+              var referrer = node;
+              if (true) {
+                  selector_str = '(string(properties["page type"]) == "' + event + '")'
+                  
+                  /* First Funnel Step */
+                  events.push({'event': 'page', 'selector': selector_str });
+                  /* Second Funnel Step.  They're currently on the current URL, but they came from a page in our prop list */
+                  selector_str = '(string(properties["page type"]) == "' + referrer.name + '") and "' + event + '" in string(properties["$referrer"])'
+                  events.push({'event': 'page', 'selector': selector_str });
+                  
+                while (parent) {
+                    selector_str = '("'+ referrer.name + '" in string(properties["$referrer"]) and (string(properties["page type"] =="' + parent.name + '")))'
+                    
+                    events.push({'event': 'page', 'selector': selector_str});
+                    referrer = parent
+                    parent = parent.parent
+                }
+                
+                events.push(params)
+                promises.push(MP.api.funnel.apply(MP.api, events));
+              }
+            });
+
+            Promise.all(promises).then(function(promiseArray){
+              /* promiseArray is a list of funnel responses */
+              _.each(promiseArray, function(data){
+                  /* data is a list of the funnel steps */
+                  
+                  var total = 0;
+                  var length = data.length - 1;
+                  _.each(_.values(data[length]), function(funnelObj){ total += funnelObj.count });
+                  // nodes[_.values(data[length])[0].event] = total;
+                  nodes[objs[promiseArray.indexOf(data)]] = {};
+                  nodes[objs[promiseArray.indexOf(data)]]['total'] = total
+                  debugger;
+                  nodes[objs[promiseArray.indexOf(data)]]['conversion'] = data[length][_.keys(data[length])[0]]['overall_conv_ratio']
+                
+              });
+            }).then(function(){
+              
+               _.each(_.keys(nodes), function(key){
+                debugger;                 
+                 /*
+                    Build a node object with the conversion percentage and other meta data and add it to the children
+                    of the parent node
+                 */
+                 
+                 var eventName = toTitleCase(key.replace("/ffl/",""))
+                  var rando = randomNum();
+                  var conversion = Math.floor(nodes[key]['conversion'] * 100)
+                  if (conversion < 1 ) { return };
+                  if (node.children) {
+                      node.children.push({
+                        'eventName':eventName,
+                        'name':key,
+                        'id':rando,
+                        'conversion': conversion,
+                        'count':nodes[key]['total']
+                      });
+                  } else {
+                      node.children = [{
+                        'eventName':eventName,
+                        'name':key,
+                        'id':rando,
+                        'conversion': conversion,
+                        'count':nodes[key]['total']
+                      }];
+                  }
+               })
+               addNode(graphData);
+            });
+        }
+      
+    
+        $('#run').on('click', function(e){
+          var rootProp = $('#eventSelect').MPSelect('value')
+          var rootEvent = { event: "page", selector: '(string(properties["page type"]) == "' + rootProp + '")'}
+          /* This Event Represents the Origin of the User Flow Diagram. */
+          
+          graphData = {
+            'eventName':toTitleCase(rootProp.replace('/ffl/','')),
+            'name': rootProp,
+            'id': 1,
+          };
+
+          /* Find the Root Event Count */
+          var rootEventCount = MP.api.funnel(rootEvent, params);
+          
+          $.when(rootEventCount).done(function(eventCount){
+              var eventTotal = 0;
+              _.each(_.values(eventCount[0]), function(count){ eventTotal += count.count});
+              graphData.count = eventTotal;
+              addNode(graphData);
+          });
+          
+          
+          /*
+            var topEventsParams = {'limit':'30'};
+            var topEvents = MP.api.topEvents(topEventsParams);
+          */
+
+          /* Find Top URLS for ESPN's page Event 
+          
+          var pageViewValueParams = {
+              limit: 5
+          };
+          
+          var pageViewProps = MP.api.propertyValues('page', 'Url', pageViewValueParams)
+          
+          $.when(pageViewProps).done(function(props){
+              objs = props.values();
+          });
+          */
+          
+        });
+       });
     </script>
   </body>
 </html>
