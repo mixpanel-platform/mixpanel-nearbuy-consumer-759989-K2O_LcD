@@ -48,6 +48,7 @@
       <div style="clear: both;"></div>
       <button id="run" value="Run" style="display: none;">Run</button>
     <script>
+      MP.api.setCredentials('9efe818c7f1101d7a3de39177feb3774','a419a5bc72c9c0d3f96d5f61fe7da3fb')
       MP.api.MAX_SIMULTANEOUS_QUERIES = 30
       var datesSelector = $('#dateSelect').MPDatepicker();
       var rootEventSelect = $('#eventSelect').MPEventSelect();
@@ -63,7 +64,15 @@
         limit: 200,
         interval: 90
       }
-  
+      var pageProps = [];
+      var pageValues = MP.api.propertyValues('page', 'page type');
+      pageValues.done(function(results){
+          _.each(_.values(results.values()), function(pageProp){
+            pageProps.push(pageProp);
+          });
+          
+      })
+
       var width = 960;
       var height = 750;
       var cluster = d3.layout.cluster()
@@ -153,24 +162,56 @@
         /* Dict with top counts for each event */
         var nodes = {};
         var promises = []
-          
+         if (node.name == 'page') {
+              /* Get the page type properties */
+              var numerical = [];
+
+              /* sort count of event_list keys */
+              _.each(_.keys(event_list), function(key){  numerical.push(parseInt(key))})
+              var count = _.max(numerical)
+
+              var props = pageProps;
+              _.each(pageProps, function(prop){
+                  /* Add one to count to be one greater than the last value in event_list */
+                  count++
+                                                                                 // "]) == "' + event + '")'
+                  var selector = {'event':'page', 'selector':'(properties["page type"]) == "' + prop + '"'};
+                  event_list[count] = selector
+              })
+          } 
+        
         _.each(_.keys(event_list), function(key) {
           var event = event_list[key];
           var parent = node;
           var selector_str;
           var events = [];
+          console.log(node)
+
           while (parent){
-            events.push({'event': event});
+            if (typeof(event) == "string") {
+              events.push({'event': event});
+            } else {
+              events.push(event);
+            }
+
             event = parent.name
             parent = parent.parent
+            
           }
-          events.push({'event': event});
+
+         
+         if (typeof(event) == "string") {
+            events.push({'event': event});
+          } else {
+            events.push(event);
+          }
           events.reverse();
           events.push(params);
           promises.push(MP.api.funnel.apply(MP.api, events));
         });
 
           Promise.all(promises).then(function(promiseArray){
+            console.log(promiseArray)
             _.each(promiseArray, function(data){
                 total = 0;
                 var length = data.length - 1;
