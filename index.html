@@ -243,14 +243,14 @@
                   // nodes[_.values(data[length])[0].event] = total;
                   nodes[objs[promiseArray.indexOf(data)]] = {};
                   nodes[objs[promiseArray.indexOf(data)]]['total'] = total
-                  debugger;
+                  
                   nodes[objs[promiseArray.indexOf(data)]]['conversion'] = data[length][_.keys(data[length])[0]]['overall_conv_ratio']
                 
               });
             }).then(function(){
               
                _.each(_.keys(nodes), function(key){
-                debugger;                 
+                                 
                  /*
                     Build a node object with the conversion percentage and other meta data and add it to the children
                     of the parent node
